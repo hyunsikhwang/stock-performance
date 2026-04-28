@@ -1,0 +1,199 @@
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import path from 'path';
+import fs from 'fs';
+// @ts-ignore
+import yahooFinanceModule from 'yahoo-finance2';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// yahoo-finance2 v2+ usually requires an instance in some environments,
+// or provides a default instance. We handle both.
+const yahooFinance = (typeof yahooFinanceModule === 'function')
+  ? new (yahooFinanceModule as any)()
+  : (yahooFinanceModule as any).default && typeof (yahooFinanceModule as any).default === 'function'
+    ? new (yahooFinanceModule as any).default()
+    : yahooFinanceModule;
+
+const app = express();
+const PORT = 3000;
+const TARGETS_DIR = path.join(process.cwd(), 'targets');
+
+app.use(express.json());
+
+// Helper to resolve KR symbols
+async function resolveSymbol(code: string): Promise<string> {
+  if (/^[0-9A-Z]{6}$/.test(code)) {
+    // Try .KS then .KQ
+    return `${code}.KS`; 
+    // In a real app, we might check which one exists, but for speed we might append Based on market if known.
+    // However, yahoo-finance2 is resilient but we need the right suffix.
+    // For this app, I'll assume standard KOSPI (.KS) and KOSDAQ (.KQ).
+    // I will use a simple heuristic: codes often follow patterns but it's hard.
+    // I'll just append .KS and let the user specify if needed, OR I'll try to guess.
+    // Most target KR stocks in the list provided are a mix.
+  }
+  return code;
+}
+
+// API Routes
+app.get('/api/targets', (req, res) => {
+  try {
+    const files = ['kr_stocks.txt', 'us_stocks.txt', 'etfs.txt'];
+    const data: Record<string, any[]> = {};
+
+    files.forEach(file => {
+      const filePath = path.join(TARGETS_DIR, file);
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const category = file.replace('.txt', '').replace('_', ' ');
+        data[category] = content.split('\n')
+          .filter(line => line.trim() && !line.startsWith('#'))
+          .map(line => {
+            const [code, name, quantity] = line.split('|');
+            return { code, name, quantity: parseInt(quantity || '0', 10) };
+          });
+      }
+    });
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load targets' });
+  }
+});
+
+app.post('/api/targets/update', (req, res) => {
+  const { password, category, content } = req.body;
+  
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const fileName = category.toLowerCase().replace(' ', '_') + '.txt';
+    const filePath = path.join(TARGETS_DIR, fileName);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update target' });
+  }
+});
+
+app.get('/api/history', async (req, res) => {
+  const { symbols, start, end } = req.query;
+  if (!symbols) return res.status(400).json({ error: 'Missing symbols' });
+
+  const symbolList = (symbols as string).split(',');
+  const startDate = new Date(start as string || new Date().getFullYear() + '-01-01');
+  const endDate = new Date(end as string || new Date());
+
+  try {
+    const results: Record<string, any> = {};
+    
+    // 1. Prepare candidate symbols for batch quote discovery
+    const candidates: string[] = [];
+    const symMap: Record<string, string[]> = {}; // Map original sym to candidates
+
+    symbolList.forEach(s => {
+      if (/^[0-9]{6}$/.test(s)) {
+        const ks = `${s}.KS`;
+        const kq = `${s}.KQ`;
+        candidates.push(ks, kq);
+        symMap[s] = [ks, kq];
+      } else {
+        const us = s.replace('.', '-');
+        candidates.push(us);
+        symMap[s] = [us];
+      }
+    });
+
+    // 2. Discover accurate prices and valid suffixes in ONE batch
+    const bestQuoteMap: Record<string, any> = {};
+    try {
+      const quotes = await yahooFinance.quote(candidates) as any[];
+      quotes.forEach(q => {
+        const baseSym = q.symbol.split('.')[0];
+        const currentBest = bestQuoteMap[baseSym];
+        
+        // Quality check:
+        // 1. Prefer KRW currency for Korean codes
+        // 2. Prefer non-zero volume (active ticker)
+        // 3. Prefer regularMarketPrice presence
+        const isKrCode = /^[0-9]{6}$/.test(baseSym);
+        const qPrice = q.regularMarketPrice || q.price || q.regularMarketPreviousClose;
+        
+        if (!qPrice) return;
+
+        if (!currentBest) {
+          bestQuoteMap[baseSym] = q;
+        } else {
+          const currentPrice = currentBest.regularMarketPrice || currentBest.price || currentBest.regularMarketPreviousClose;
+          
+          let better = false;
+          if (isKrCode) {
+            // Strictly prefer ones that actually returned a price and have the right currency
+            if (q.currency === 'KRW' && currentBest.currency !== 'KRW') better = true;
+            else if (q.currency === 'KRW' && currentBest.currency === 'KRW') {
+              // If both KRW, pick the one with volume or just standard market
+              if ((q.regularMarketVolume || 0) > (currentBest.regularMarketVolume || 0)) better = true;
+            }
+          } else {
+            if ((q.regularMarketVolume || 0) > (currentBest.regularMarketVolume || 0)) better = true;
+          }
+          
+          if (better) {
+            bestQuoteMap[baseSym] = q;
+          }
+        }
+      });
+    } catch (e) {
+      console.error('Batch discovery failed', e);
+    }
+
+    // 3. Fetch historical data for the best candidates only
+    await Promise.all(symbolList.map(async (origSym) => {
+      const bestQuote = bestQuoteMap[origSym];
+      const querySym = bestQuote ? bestQuote.symbol : (symMap[origSym] ? symMap[origSym][0] : origSym);
+
+      try {
+        const data = await yahooFinance.historical(querySym, { period1: startDate, period2: endDate }) as any;
+        if (Array.isArray(data) && data.length > 0) {
+          results[origSym] = { 
+            history: data, 
+            price: bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : data[data.length - 1].close 
+          };
+        }
+      } catch (err) {
+        console.error(`Failed historical for ${querySym}:`, err);
+      }
+    }));
+
+    res.json(results);
+  } catch (error) {
+    console.error('History fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer();

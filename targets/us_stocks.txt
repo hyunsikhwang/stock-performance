@@ -1,0 +1,21 @@
+LLY|Eli Lilly|136
+ABBV|AbbVie|489
+BABA|Alibaba|109
+TSLA|Tesla|106
+BRK-B|Berkshire Hathaway|128
+DECK|Deckers Outdoor|54
+NVO|Novo Nordisk|180
+ONON|On Holding|128
+ORCL|Oracle|18
+RACE|Ferrari|133
+TSM|TSMC|80
+ASML|ASML|50
+AVGO|Broadcom|102
+GOOGL|Google|274
+MDGL|Madrigal Pharmaceuticals|69
+MSFT|Microsoft|120
+NVDA|NVIDIA|24
+QCOM|Qualcomm|90
+VKTX|Viking Therapeutics|200
+VRTX|Vertex Pharmaceuticals|27
+AMAT|Applied Materials|30
