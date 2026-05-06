@@ -592,7 +592,7 @@ export default function App() {
                       content={<CustomTreemapContent getColor={getColor} />}
                     >
                         <Tooltip 
-                          formatter={(val: number) => [`${val.toFixed(2)}%`, 'Weight']}
+                          formatter={(val: number, name: string) => [`${val.toFixed(2)}%`, name]}
                         />
                     </Treemap>
                   </ResponsiveContainer>
@@ -692,9 +692,9 @@ const CustomTreemapContent = (props: any) => {
       />
       {width > 50 && height > 35 && (
         <foreignObject x={x + 4} y={y + 4} width={width - 8} height={height - 8}>
-           <div className="text-white overflow-hidden pointer-events-none select-none">
-              <div className="text-[18px] font-medium truncate leading-tight opacity-90">{name}</div>
-              <div className="text-[14px] opacity-70 leading-none">{value.toFixed(1)}%</div>
+           <div className="h-full flex flex-col items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none">
+              <div className="text-[18px] font-medium truncate w-full px-1 leading-tight opacity-90">{name}</div>
+              <div className="text-[14px] opacity-70 leading-none mt-1">{value.toFixed(1)}%</div>
            </div>
         </foreignObject>
       )}
