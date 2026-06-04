@@ -38,7 +38,6 @@ interface SummaryItem {
 const Header = () => (
   <header className="mb-8 text-center pb-8 border-b border-gray-100">
     <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-2">Stock Performance</h1>
-    <p className="text-gray-500 font-light">Value Horizon's Advanced Investment Tracking Engine</p>
   </header>
 );
 
