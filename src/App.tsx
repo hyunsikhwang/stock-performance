@@ -33,6 +33,43 @@ interface SummaryItem {
   weight: number;
 }
 
+// --- Helper for Category Rendering ---
+const renderCategoryLabelText = (cat: string) => {
+  if (cat === 'KR') return 'KR';
+  if (cat === 'US') return 'US';
+  return cat;
+};
+
+const renderCategoryLabelRich = (cat: string) => {
+  if (cat === 'KR') {
+    return (
+      <span className="inline-flex items-center justify-center gap-1.5">
+        <img 
+          src="https://flagcdn.com/w40/kr.png" 
+          alt="South Korea Flag" 
+          className="w-4.5 h-3 object-cover rounded-sm shadow-sm border border-gray-200"
+          referrerPolicy="no-referrer"
+        />
+        <span>KR</span>
+      </span>
+    );
+  }
+  if (cat === 'US') {
+    return (
+      <span className="inline-flex items-center justify-center gap-1.5">
+        <img 
+          src="https://flagcdn.com/w40/us.png" 
+          alt="USA Flag" 
+          className="w-4.5 h-3 object-cover rounded-sm shadow-sm border border-gray-200"
+          referrerPolicy="no-referrer"
+        />
+        <span>US</span>
+      </span>
+    );
+  }
+  return <span>{cat}</span>;
+};
+
 // --- Components ---
 
 const Header = () => (
@@ -115,7 +152,7 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
                 onChange={e => setCategory(e.target.value)}
                 className="w-full border rounded-lg px-3 py-2"
               >
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                {categories.map(c => <option key={c} value={c}>{renderCategoryLabelText(c)}</option>)}
               </select>
             </div>
           </div>
@@ -155,6 +192,21 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [hoveredStock, setHoveredStock] = useState<string | null>(null);
+
+  const formatPrice = (price: number, code?: string) => {
+    if (activeTab === 'US') {
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(price);
+    }
+    if (activeTab === 'KR' || activeTab === 'ETF') {
+      return new Intl.NumberFormat('ko-KR').format(Math.round(price));
+    }
+    // Fallback if activeTab is not set
+    const isKoreanCode = code && (/^[0-9]+$/.test(code) || code.endsWith('.KS') || code.endsWith('.KQ'));
+    if (!isKoreanCode && code) {
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(price);
+    }
+    return new Intl.NumberFormat('ko-KR').format(Math.round(price));
+  };
 
   useEffect(() => {
     fetchTargets();
@@ -365,7 +417,7 @@ export default function App() {
                     activeTab === cat ? "bg-white shadow-sm text-black ring-1 ring-black/5" : "text-gray-400 hover:text-gray-600"
                   )}
                 >
-                  {cat}
+                  {renderCategoryLabelRich(cat)}
                 </button>
               ))}
             </div>
@@ -418,7 +470,7 @@ export default function App() {
                 <div className="overflow-hidden">
                   <h3 className="text-[11px] uppercase text-gray-400 tracking-wider mb-0.5 truncate pr-2">{item.name}</h3>
                   <div className="text-sm font-bold tracking-tight leading-none mb-0.5 truncate">
-                    {new Intl.NumberFormat().format(Math.round(item.currentPrice))}
+                    {formatPrice(item.currentPrice, item.code)}
                   </div>
                   <div className={cn(
                     "text-[10px] font-bold",
@@ -623,8 +675,8 @@ export default function App() {
                           <tr key={`${s.code}-${s.name}`} className="hover:bg-gray-50 transition-colors">
                             <td className="py-4 font-semibold">{s.name}</td>
                             <td className="py-4 text-gray-400 font-mono text-xs">{s.code}</td>
-                            <td className="py-4 font-medium">{new Intl.NumberFormat().format(Math.round(s.startPrice))}</td>
-                            <td className="py-4 font-medium">{new Intl.NumberFormat().format(Math.round(s.currentPrice))}</td>
+                            <td className="py-4 font-medium">{formatPrice(s.startPrice, s.code)}</td>
+                            <td className="py-4 font-medium">{formatPrice(s.currentPrice, s.code)}</td>
                             <td className={cn("py-4 font-bold", s.returnPercent >= 0 ? "text-red-500" : "text-blue-500")}>
                               {formatPercent(s.returnPercent)}
                             </td>

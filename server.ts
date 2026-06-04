@@ -59,7 +59,14 @@ app.get('/api/targets', (req, res) => {
       const filePath = path.join(TARGETS_DIR, file);
       if (fs.existsSync(filePath)) {
         const content = fs.readFileSync(filePath, 'utf-8');
-        const category = file.replace('.txt', '').replace('_', ' ');
+        let category = file.replace('.txt', '').replace('_', ' ');
+        if (category === 'kr stocks') {
+          category = 'KR';
+        } else if (category === 'us stocks') {
+          category = 'US';
+        } else if (category === 'etfs') {
+          category = 'ETF';
+        }
         data[category] = content.split('\n')
           .filter(line => line.trim() && !line.startsWith('#'))
           .map(line => {
@@ -83,7 +90,15 @@ app.post('/api/targets/update', (req, res) => {
   }
 
   try {
-    const fileName = category.toLowerCase().replace(' ', '_') + '.txt';
+    let internalCategory = category;
+    if (category === 'KR') {
+      internalCategory = 'kr stocks';
+    } else if (category === 'US') {
+      internalCategory = 'us stocks';
+    } else if (category === 'ETF') {
+      internalCategory = 'etfs';
+    }
+    const fileName = internalCategory.toLowerCase().replace(' ', '_') + '.txt';
     const filePath = path.join(TARGETS_DIR, fileName);
     fs.writeFileSync(filePath, content, 'utf-8');
     res.json({ success: true });
