@@ -249,9 +249,25 @@ app.get('/api/history', async (req, res) => {
         try {
           const data = await yahooFinance.historical(querySym, { period1: startDate, period2: endDate }) as any;
           if (Array.isArray(data) && data.length > 0) {
+            const currentPrice = bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : data[data.length - 1].close;
+            let dailyChangePercent = 0;
+            if (bestQuote) {
+              if (bestQuote.regularMarketChangePercent !== undefined) {
+                dailyChangePercent = bestQuote.regularMarketChangePercent;
+              } else if (bestQuote.regularMarketPreviousClose) {
+                dailyChangePercent = ((currentPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+              }
+            } else if (data.length > 1) {
+              const last = data[data.length - 1].close;
+              const prev = data[data.length - 2].close;
+              if (prev > 0) {
+                dailyChangePercent = ((last - prev) / prev) * 100;
+              }
+            }
             results[origSym] = { 
               history: data, 
-              price: bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : data[data.length - 1].close 
+              price: currentPrice,
+              dailyChangePercent: dailyChangePercent
             };
             success = true;
           }
@@ -272,10 +288,25 @@ app.get('/api/history', async (req, res) => {
         }
         console.log(`Generating graceful simulated fallback history for: ${origSym} at price ${fallbackPrice}`);
         const mockHistoryData = generateMockHistory(startDate, endDate, fallbackPrice);
+        let dailyChangePercent = 0;
+        if (bestQuote) {
+          if (bestQuote.regularMarketChangePercent !== undefined) {
+            dailyChangePercent = bestQuote.regularMarketChangePercent;
+          } else if (bestQuote.regularMarketPreviousClose) {
+            dailyChangePercent = ((fallbackPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+          }
+        } else if (mockHistoryData.length > 1) {
+          const last = mockHistoryData[mockHistoryData.length - 1].close;
+          const prev = mockHistoryData[mockHistoryData.length - 2].close;
+          if (prev > 0) {
+            dailyChangePercent = ((last - prev) / prev) * 100;
+          }
+        }
         results[origSym] = {
           history: mockHistoryData,
           price: fallbackPrice,
-          isSimulated: true
+          isSimulated: true,
+          dailyChangePercent: dailyChangePercent
         };
       }
     }));

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Beautiful gradient for the trend line -->
+    <linearGradient id="trendGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+    <!-- Background subtle gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#1f2937" />
+    </linearGradient>
+    <!-- Glow effect -->
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Elegant dark rounded square container -->
+  <rect width="128" height="128" rx="28" fill="url(#bgGrad)" />
+  
+  <!-- Grid decoration lines -->
+  <line x1="24" y1="96" x2="104" y2="96" stroke="#374151" stroke-width="2" stroke-linecap="round" opacity="0.8" />
+  <line x1="24" y1="68" x2="104" y2="68" stroke="#374151" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.4" />
+  <line x1="24" y1="40" x2="104" y2="40" stroke="#374151" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.4" />
+
+  <!-- Asset performance bars -->
+  <rect x="34" y="68" width="12" height="28" rx="3" fill="#3b82f6" opacity="0.25" />
+  <rect x="58" y="48" width="12" height="48" rx="3" fill="#06b6d4" opacity="0.35" />
+  <rect x="82" y="32" width="12" height="64" rx="3" fill="#10b981" opacity="0.5" />
+
+  <!-- Upward trending line chart with gradient and glowing dot -->
+  <path d="M 28 88 C 48 84, 52 56, 72 50 C 84 46, 92 34, 100 28" fill="none" stroke="url(#trendGrad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Glowing arrowhead and point -->
+  <circle cx="100" cy="28" r="7" fill="#10b981" filter="url(#glow)" />
+  <circle cx="100" cy="28" r="4" fill="#ffffff" />
+</svg>

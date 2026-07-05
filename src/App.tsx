@@ -29,6 +29,7 @@ interface SummaryItem {
   startPrice: number;
   currentPrice: number;
   returnPercent: number;
+  dailyChangePercent: number;
   baseDate: string;
   quantity: number;
   weight: number;
@@ -76,9 +77,9 @@ const renderCategoryLabelRich = (cat: string) => {
 const Header = ({ onManageClick }: { onManageClick: () => void }) => (
   <header className="mb-8 pb-8 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
     <div className="text-center sm:text-left">
-      <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-2">Asset Performance Analyzer</h1>
+      <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-2">Stock Performance</h1>
       <p className="text-xs text-gray-400 font-semibold tracking-wide font-mono uppercase bg-gray-50 border border-gray-100/80 px-2.5 py-1 rounded-md inline-block">
-        Real-time multi-asset performance metrics
+        Real-time stock performance metrics
       </p>
     </div>
     <button 
@@ -561,6 +562,48 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
   );
 };
 
+// --- Helper for performance-based coloring ---
+const getPerformanceColors = (changeValue: number, isUS: boolean) => {
+  const isPositive = changeValue >= 0;
+  if (isUS) {
+    if (isPositive) {
+      return {
+        text: 'text-emerald-600',
+        bg: 'bg-emerald-50/40',
+        border: 'border-emerald-200/60',
+        hoverBorder: 'hover:border-emerald-400',
+        accent: '#10b981'
+      };
+    } else {
+      return {
+        text: 'text-rose-600',
+        bg: 'bg-rose-50/40',
+        border: 'border-rose-200/60',
+        hoverBorder: 'hover:border-rose-400',
+        accent: '#f43f5e'
+      };
+    }
+  } else {
+    if (isPositive) {
+      return {
+        text: 'text-red-600',
+        bg: 'bg-red-50/40',
+        border: 'border-red-200/60',
+        hoverBorder: 'hover:border-red-400',
+        accent: '#ef4444'
+      };
+    } else {
+      return {
+        text: 'text-blue-600',
+        bg: 'bg-blue-50/40',
+        border: 'border-blue-200/60',
+        hoverBorder: 'hover:border-blue-400',
+        accent: '#3b82f6'
+      };
+    }
+  }
+};
+
 export default function App() {
   const [categories, setCategories] = useState<Record<string, Target[]>>({});
   const [activeTab, setActiveTab] = useState<string>('');
@@ -571,6 +614,7 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [hoveredStock, setHoveredStock] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'return' | 'dailyChange'>('dailyChange');
 
   const formatPrice = (price: number, code?: string) => {
     if (activeTab === 'US') {
@@ -644,6 +688,7 @@ export default function App() {
       const startPrice = firstPoint.close;
       const currentPrice = data.price; // Use the more accurate price from quote
       const returnPercent = ((currentPrice - startPrice) / startPrice) * 100;
+      const dailyChangePercent = data.dailyChangePercent || 0;
 
       const mktVal = currentPrice * (t.quantity || 0);
       dataPoints.push({
@@ -655,6 +700,7 @@ export default function App() {
           startPrice,
           currentPrice,
           returnPercent,
+          dailyChangePercent,
           baseDate: format(new Date(firstPoint.date), 'yyyy-MM-dd'),
           quantity: t.quantity,
         }
@@ -669,8 +715,11 @@ export default function App() {
       });
     });
 
+    if (sortBy === 'dailyChange') {
+      return results.sort((a, b) => b.dailyChangePercent - a.dailyChangePercent);
+    }
     return results.sort((a, b) => b.returnPercent - a.returnPercent);
-  }, [history, categories, activeTab]);
+  }, [history, categories, activeTab, sortBy]);
 
   const chartData = useMemo(() => {
     const allDates = new Set<string>();
@@ -726,6 +775,7 @@ export default function App() {
       .map(s => ({
         name: s.name,
         value: s.weight,
+        dailyChangePercent: s.dailyChangePercent,
         displayLabel: `${s.name}\n${s.weight.toFixed(1)}%`
       }));
   }, [summary, visibility]);
@@ -848,38 +898,97 @@ export default function App() {
           </div>
         </div>
 
+        {/* Sort Controls & Metric Grid Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">종목별 실시간 성과</h2>
+            <p className="text-xs text-gray-400 font-medium">카드를 클릭하면 차트에서 표시 여부를 전환할 수 있습니다.</p>
+          </div>
+          <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200/60 shadow-inner">
+            <button
+              onClick={() => setSortBy('return')}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer duration-200",
+                sortBy === 'return' 
+                  ? "bg-white shadow-md text-black ring-1 ring-black/5" 
+                  : "text-gray-500 hover:text-gray-800"
+              )}
+            >
+              분석 기간 수익률 순
+            </button>
+            <button
+              onClick={() => setSortBy('dailyChange')}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer duration-200",
+                sortBy === 'dailyChange' 
+                  ? "bg-white shadow-md text-black ring-1 ring-black/5" 
+                  : "text-gray-500 hover:text-gray-800"
+              )}
+            >
+              실시간 당일 변동률 순
+            </button>
+          </div>
+        </div>
+
         {/* Metric Grid */}
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2 mb-16">
-          {summary.map((item, idx) => {
-            const isHidden = visibility[item.name] === false;
-            return (
-              <button 
-                key={`${item.code}-${item.name}`}
-                onClick={() => toggleVisibility(item.name)}
-                className={cn(
-                  "group relative p-2.5 rounded-lg border transition-all duration-300 text-left overflow-hidden h-20 flex flex-col justify-between",
-                  isHidden 
-                    ? "bg-gray-50 border-gray-100 opacity-40 grayscale" 
-                    : "bg-white border-gray-100 hover:shadow-md hover:border-black/5 active:scale-95"
-                )}
-              >
-                {!isHidden && <div className="absolute top-0 left-0 w-0.5 h-full" style={{ backgroundColor: getColor(item.name) }} />}
-                <div className="overflow-hidden">
-                  <h3 className="text-[11px] uppercase text-gray-400 tracking-wider mb-0.5 truncate pr-2">{item.name}</h3>
-                  <div className="text-sm font-bold tracking-tight leading-none mb-0.5 truncate">
-                    {formatPrice(item.currentPrice, item.code)}
+          {(() => {
+            const maxWeight = Math.max(...summary.map(s => s.weight), 1);
+            return summary.map((item, idx) => {
+              const isHidden = visibility[item.name] === false;
+              const isUS = activeTab === 'US';
+              const valueToShow = sortBy === 'dailyChange' ? item.dailyChangePercent : item.returnPercent;
+              const perfColors = getPerformanceColors(valueToShow, isUS);
+
+              return (
+                <button 
+                  key={`${item.code}-${item.name}`}
+                  onClick={() => toggleVisibility(item.name)}
+                  className={cn(
+                    "group relative p-2 rounded-xl border transition-all duration-300 text-left overflow-hidden h-[88px] flex flex-col justify-between shadow-sm",
+                    isHidden 
+                      ? "bg-gray-50 border-gray-100 opacity-40 grayscale" 
+                      : `${perfColors.bg} ${perfColors.border} ${perfColors.hoverBorder} hover:shadow-md hover:scale-[1.02] active:scale-95`
+                  )}
+                >
+                  {!isHidden && <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: perfColors.accent }} />}
+                  <div className="overflow-hidden w-full pl-1 flex flex-col h-full justify-between">
+                    <div className="flex justify-between items-start gap-1">
+                      <h3 className="text-[10px] uppercase text-gray-500 tracking-wider font-bold truncate pr-1">{item.name}</h3>
+                      {!isHidden ? <Eye className="w-2.5 h-2.5 text-gray-400 opacity-60 flex-shrink-0" /> : <EyeOff className="w-2.5 h-2.5 text-gray-400 opacity-60 flex-shrink-0" />}
+                    </div>
+                    <div className="text-xs sm:text-sm font-black tracking-tight leading-none my-0.5 truncate text-gray-900">
+                      {formatPrice(item.currentPrice, item.code)}
+                    </div>
+                    <div className="flex justify-between items-center w-full gap-1">
+                      <div className={cn(
+                        "text-[10px] font-black font-mono flex items-center gap-0.5 flex-shrink-0",
+                        perfColors.text
+                      )}>
+                        <span>{valueToShow >= 0 ? '▲' : '▼'}</span>
+                        <span>{Math.abs(valueToShow).toFixed(2)}%</span>
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 min-w-0 max-w-[50%]">
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[8px] font-medium text-gray-400">비중</span>
+                          <span className="text-[9.5px] font-extrabold text-gray-700 font-mono">{item.weight.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-12 h-1 bg-gray-200/60 rounded-full overflow-hidden relative">
+                          <div 
+                            className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
+                            style={{ 
+                              width: `${(item.weight / maxWeight) * 100}%`,
+                              backgroundColor: isHidden ? '#cbd5e1' : perfColors.accent
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className={cn(
-                    "text-[10px] font-bold",
-                    item.returnPercent >= 0 ? "text-red-500" : "text-blue-500"
-                  )}>
-                    {formatPercent(item.returnPercent)}
-                  </div>
-                </div>
-                {!isHidden ? <Eye className="absolute top-2 right-2 w-2.5 h-2.5 text-gray-200" /> : <EyeOff className="absolute top-2 right-2 w-2.5 h-2.5 text-gray-200" />}
-              </button>
-            )
-          })}
+                </button>
+              )
+            })
+          })()}
         </div>
 
         {/* Charts Section */}
@@ -1105,7 +1214,7 @@ export default function App() {
                       fill="#000"
                       aspectRatio={4 / 3}
                       isAnimationActive={false}
-                      content={<CustomTreemapContent getColor={getColor} />}
+                      content={<CustomTreemapContent activeTab={activeTab} />}
                     >
                         <Tooltip 
                           formatter={(val: number, name: string) => [`${val.toFixed(2)}%`, name]}
@@ -1189,9 +1298,19 @@ export default function App() {
 }
 
 const CustomTreemapContent = (props: any) => {
-  const { x, y, width, height, name, value, getColor } = props;
+  const { x, y, width, height, name, value, dailyChangePercent, activeTab } = props;
 
   if (width < 30 || height < 30) return null;
+
+  const isUS = activeTab === 'US';
+  const changeValue = dailyChangePercent || 0;
+  
+  let fillCol = '#64748b'; // Slate fallback
+  if (changeValue > 0) {
+    fillCol = isUS ? '#10b981' : '#ef4444'; // Emerald for US, Crimson for KR
+  } else if (changeValue < 0) {
+    fillCol = isUS ? '#ef4444' : '#2563eb'; // Crimson for US, Royal Blue for KR
+  }
 
   return (
     <g>
@@ -1201,7 +1320,7 @@ const CustomTreemapContent = (props: any) => {
         width={width}
         height={height}
         style={{
-          fill: getColor ? getColor(name) : '#ccc',
+          fill: fillCol,
           stroke: '#fff',
           strokeWidth: 2,
         }}
@@ -1209,8 +1328,15 @@ const CustomTreemapContent = (props: any) => {
       {width > 50 && height > 35 && (
         <foreignObject x={x + 4} y={y + 4} width={width - 8} height={height - 8}>
            <div className="h-full flex flex-col items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none">
-              <div className="text-[18px] font-medium truncate w-full px-1 leading-tight opacity-90">{name}</div>
-              <div className="text-[14px] opacity-70 leading-none mt-1">{value.toFixed(1)}%</div>
+              <div className="text-[13px] sm:text-[15px] font-black truncate w-full px-1 leading-tight drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.5)]">
+                {name}
+              </div>
+              <div className="text-[10px] sm:text-[11px] font-bold opacity-90 leading-none mt-1.5 bg-black/25 px-2 py-0.5 rounded-full inline-block">
+                {value.toFixed(1)}%
+              </div>
+              <div className="text-[10px] font-black font-mono leading-none mt-1.5 opacity-95">
+                {changeValue >= 0 ? '▲' : '▼'} {Math.abs(changeValue).toFixed(2)}%
+              </div>
            </div>
         </foreignObject>
       )}
