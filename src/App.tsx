@@ -867,9 +867,10 @@ export default function App() {
     return summary
       .filter(s => s.weight > 0.05 && visibility[s.name] !== false)
       .sort((a, b) => b.weight - a.weight) // Strict descending order by weight
-      .map(s => ({
+      .map((s, idx) => ({
         name: s.name,
         value: s.weight,
+        rank: idx + 1,
         dailyChangePercent: s.dailyChangePercent,
         displayLabel: `${s.name}\n${s.weight.toFixed(1)}%`
       }));
@@ -1487,9 +1488,9 @@ export default function App() {
 }
 
 const CustomTreemapContent = (props: any) => {
-  const { x, y, width, height, name, value, dailyChangePercent, activeTab } = props;
+  const { x, y, width, height, name, value, dailyChangePercent, activeTab, rank } = props;
 
-  if (width < 30 || height < 30) return null;
+  if (width < 15 || height < 15) return null;
 
   const isUS = activeTab === 'US';
   const changeValue = dailyChangePercent || 0;
@@ -1500,6 +1501,92 @@ const CustomTreemapContent = (props: any) => {
   } else if (changeValue < 0) {
     fillCol = isUS ? '#ef4444' : '#2563eb'; // Crimson for US, Royal Blue for KR
   }
+
+  // Sizing and rendering checks based on height and width
+  const isSuperTiny = width < 38 || height < 25;
+  const isTiny = width < 52 || height < 42;
+
+  let nameSizeClass = "text-[13px] sm:text-[15px]";
+  let valueSizeClass = "text-[10px] sm:text-[11px]";
+  let changeSizeClass = "text-[10px]";
+  let rankSizeClass = "text-[9px] sm:text-[10px]";
+
+  if (isSuperTiny) {
+    nameSizeClass = "text-[8px]";
+    valueSizeClass = "text-[7.5px]";
+    changeSizeClass = "text-[7.5px]";
+    rankSizeClass = "text-[7.5px]";
+  } else if (isTiny) {
+    nameSizeClass = "text-[10.5px]";
+    valueSizeClass = "text-[9px]";
+    changeSizeClass = "text-[8.5px]";
+    rankSizeClass = "text-[8px]";
+  }
+
+  const renderContent = () => {
+    // 1. Extreme small height
+    if (height < 25) {
+      return (
+        <div className="relative h-full flex items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none px-0.5">
+          <div className={`${nameSizeClass} font-black truncate w-full leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]`}>
+            {name}
+            {width >= 40 && (
+              <span className={`ml-1 font-bold opacity-90 ${valueSizeClass}`}>
+                {value.toFixed(1)}%
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // 2. Medium small height
+    if (height < 45) {
+      return (
+        <div className="relative h-full flex flex-col items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none px-0.5 py-0.5">
+          {rank !== undefined && width >= 42 && height >= 32 && (
+            <div className="absolute top-1 left-1 flex items-center justify-center bg-white/20 backdrop-blur-[2px] border border-white/10 rounded-full min-w-[15px] h-[15px] px-0.5 shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
+              <span className="font-mono text-[7.5px] sm:text-[8.5px] font-extrabold text-white/95 leading-none">
+                {rank}
+              </span>
+            </div>
+          )}
+          <div className={`${nameSizeClass} font-black truncate w-full leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]`}>
+            {name}
+          </div>
+          {height >= 32 && (
+            <div className={`${valueSizeClass} font-bold opacity-90 leading-none mt-0.5 bg-black/25 px-1 py-0.5 rounded inline-block`}>
+              {value.toFixed(1)}%
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 3. Normal height
+    return (
+      <div className="relative h-full flex flex-col items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none">
+        {rank !== undefined && width >= 42 && (
+          <div className="absolute top-1.5 left-1.5 flex items-center justify-center bg-white/20 backdrop-blur-[2px] border border-white/10 rounded-full min-w-[18px] h-[18px] px-1 shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
+            <span className="font-mono text-[8px] sm:text-[9.5px] font-extrabold text-white/95 leading-none">
+              {rank}
+            </span>
+          </div>
+        )}
+        <div className={`${nameSizeClass} font-black truncate w-full px-1 leading-tight drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.5)]`}>
+          {name}
+        </div>
+        <div className={`${valueSizeClass} font-bold opacity-90 leading-none mt-1.5 bg-black/25 px-2 py-0.5 rounded-full inline-block`}>
+          {value.toFixed(1)}%
+        </div>
+        {height >= 55 && (
+          <div className={`${changeSizeClass} font-black font-mono leading-none mt-1.5 opacity-95`}>
+            {changeValue >= 0 ? '▲' : '▼'} {Math.abs(changeValue).toFixed(2)}%
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <g>
@@ -1514,21 +1601,9 @@ const CustomTreemapContent = (props: any) => {
           strokeWidth: 2,
         }}
       />
-      {width > 50 && height > 35 && (
-        <foreignObject x={x + 4} y={y + 4} width={width - 8} height={height - 8}>
-           <div className="h-full flex flex-col items-center justify-center text-center text-white overflow-hidden pointer-events-none select-none">
-              <div className="text-[13px] sm:text-[15px] font-black truncate w-full px-1 leading-tight drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,0.5)]">
-                {name}
-              </div>
-              <div className="text-[10px] sm:text-[11px] font-bold opacity-90 leading-none mt-1.5 bg-black/25 px-2 py-0.5 rounded-full inline-block">
-                {value.toFixed(1)}%
-              </div>
-              <div className="text-[10px] font-black font-mono leading-none mt-1.5 opacity-95">
-                {changeValue >= 0 ? '▲' : '▼'} {Math.abs(changeValue).toFixed(2)}%
-              </div>
-           </div>
-        </foreignObject>
-      )}
+      <foreignObject x={x + 2} y={y + 2} width={width - 4} height={height - 4}>
+        {renderContent()}
+      </foreignObject>
     </g>
   );
 };
