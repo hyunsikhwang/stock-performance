@@ -6,7 +6,7 @@ import {
 import { 
   TrendingUp, Settings, Calendar, Globe, Database, 
   ChevronRight, Save, Lock, LayoutDashboard, Eye, EyeOff, Loader2, Trophy,
-  Plus, Trash2, Edit2, Check, X
+  Plus, Trash2, Edit2, Check, X, Wallet
 } from 'lucide-react';
 import { format, subDays, startOfYear, isAfter, parseISO } from 'date-fns';
 import { cn, formatPercent } from './lib/utils';
@@ -604,6 +604,11 @@ const getPerformanceColors = (changeValue: number, isUS: boolean) => {
   }
 };
 
+const formatMonth = (monthStr: string) => {
+  const [, month] = monthStr.split('-');
+  return `${parseInt(month, 10)}월`;
+};
+
 export default function App() {
   const [categories, setCategories] = useState<Record<string, Target[]>>({});
   const [activeTab, setActiveTab] = useState<string>('');
@@ -720,6 +725,96 @@ export default function App() {
     }
     return results.sort((a, b) => b.returnPercent - a.returnPercent);
   }, [history, categories, activeTab, sortBy]);
+
+  const portfolioStats = useMemo(() => {
+    let totalMarketValue = 0;
+    let weightedDailyReturn = 0;
+    let weightedCumulativeReturn = 0;
+    
+    summary.forEach(item => {
+      const mktVal = item.currentPrice * (item.quantity || 0);
+      totalMarketValue += mktVal;
+    });
+    
+    summary.forEach(item => {
+      const itemMktVal = item.currentPrice * (item.quantity || 0);
+      const weightFraction = totalMarketValue > 0 ? (itemMktVal / totalMarketValue) : 0;
+      weightedDailyReturn += weightFraction * item.dailyChangePercent;
+      weightedCumulativeReturn += weightFraction * item.returnPercent;
+    });
+    
+    return {
+      totalMarketValue,
+      weightedDailyReturn,
+      weightedCumulativeReturn
+    };
+  }, [summary]);
+
+  const monthlyReturns = useMemo(() => {
+    const monthsSet = new Set<string>();
+    Object.values(history).forEach((item: any) => {
+      const data = item.history;
+      if (Array.isArray(data)) {
+        data.forEach((p: any) => {
+          if (p && p.date) {
+            const dateObj = new Date(p.date);
+            const monthStr = format(dateObj, 'yyyy-MM');
+            monthsSet.add(monthStr);
+          }
+        });
+      }
+    });
+
+    const sortedMonths = Array.from(monthsSet).sort();
+
+    let totalMarketValue = 0;
+    summary.forEach(item => {
+      const mktVal = item.currentPrice * (item.quantity || 0);
+      totalMarketValue += mktVal;
+    });
+
+    const results = sortedMonths.map(month => {
+      let weightedReturn = 0;
+      let totalWeightUsed = 0;
+
+      summary.forEach(item => {
+        const symbol = item.code;
+        const assetData = history[symbol];
+        if (!assetData || !assetData.history || assetData.history.length === 0) return;
+
+        const monthPoints = assetData.history.filter((p: any) => {
+          if (!p || !p.date) return false;
+          return format(new Date(p.date), 'yyyy-MM') === month;
+        });
+
+        if (monthPoints.length === 0) return;
+
+        monthPoints.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        const firstPoint = monthPoints[0];
+        const lastPoint = monthPoints[monthPoints.length - 1];
+
+        const assetMonthlyReturn = firstPoint.close > 0 
+          ? ((lastPoint.close - firstPoint.close) / firstPoint.close) * 100 
+          : 0;
+
+        const itemMktVal = item.currentPrice * (item.quantity || 0);
+        const weightFraction = totalMarketValue > 0 ? (itemMktVal / totalMarketValue) : 0;
+
+        weightedReturn += weightFraction * assetMonthlyReturn;
+        totalWeightUsed += weightFraction;
+      });
+
+      const finalMonthlyReturn = totalWeightUsed > 0 ? (weightedReturn / totalWeightUsed) : 0;
+
+      return {
+        month,
+        returnPercent: finalMonthlyReturn
+      };
+    });
+
+    return results;
+  }, [history, summary]);
 
   const chartData = useMemo(() => {
     const allDates = new Set<string>();
@@ -849,6 +944,100 @@ export default function App() {
     <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-100">
       <div className="max-w-7xl mx-auto px-4 py-12 md:px-8">
         <Header onManageClick={() => setIsAdminOpen(true)} />
+
+        {/* Portfolio Overview Cards */}
+        <div className="flex flex-col gap-3 mb-8 max-w-4xl">
+          {/* Main Stats Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+            {/* Today's Return Card */}
+            <div className={cn(
+              "relative rounded-xl border py-2.5 px-3.5 shadow-sm overflow-hidden flex flex-col justify-center transition-all duration-300",
+              getPerformanceColors(portfolioStats.weightedDailyReturn, activeTab === 'US').bg,
+              getPerformanceColors(portfolioStats.weightedDailyReturn, activeTab === 'US').border
+            )}>
+              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: getPerformanceColors(portfolioStats.weightedDailyReturn, activeTab === 'US').accent }} />
+              <div className="pl-1">
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">실시간 오늘 하루 수익률</span>
+                  <TrendingUp className={cn("w-3 h-3", getPerformanceColors(portfolioStats.weightedDailyReturn, activeTab === 'US').text)} />
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <div className={cn(
+                    "text-lg font-black tracking-tight font-mono",
+                    getPerformanceColors(portfolioStats.weightedDailyReturn, activeTab === 'US').text
+                  )}>
+                    {portfolioStats.weightedDailyReturn >= 0 ? '+' : '-'}{Math.abs(portfolioStats.weightedDailyReturn).toFixed(2)}%
+                  </div>
+                  <span className="text-[8.5px] text-gray-400 font-medium">당일 가중평균</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cumulative Return Card */}
+            <div className={cn(
+              "relative rounded-xl border py-2.5 px-3.5 shadow-sm overflow-hidden flex flex-col justify-center transition-all duration-300",
+              getPerformanceColors(portfolioStats.weightedCumulativeReturn, activeTab === 'US').bg,
+              getPerformanceColors(portfolioStats.weightedCumulativeReturn, activeTab === 'US').border
+            )}>
+              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: getPerformanceColors(portfolioStats.weightedCumulativeReturn, activeTab === 'US').accent }} />
+              <div className="pl-1">
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">분석 기간 가중 수익률</span>
+                  <Trophy className={cn("w-3 h-3", getPerformanceColors(portfolioStats.weightedCumulativeReturn, activeTab === 'US').text)} />
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <div className={cn(
+                    "text-lg font-black tracking-tight font-mono",
+                    getPerformanceColors(portfolioStats.weightedCumulativeReturn, activeTab === 'US').text
+                  )}>
+                    {portfolioStats.weightedCumulativeReturn >= 0 ? '+' : '-'}{Math.abs(portfolioStats.weightedCumulativeReturn).toFixed(2)}%
+                  </div>
+                  <span className="text-[8.5px] text-gray-400 font-medium">시작일({startDate}) 대비</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Monthly Return Card (Full width row, compact layout, wraps cleanly without scrollbars) */}
+          <div className="relative rounded-xl border border-gray-150 p-2.5 shadow-sm bg-gray-50/50 max-w-4xl overflow-hidden flex flex-col justify-between transition-all duration-300">
+            <div className="absolute top-0 left-0 w-1 h-full bg-gray-400/80" />
+            <div className="pl-1 w-full">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3 text-gray-400" />
+                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">분석 기간 월별 수익률</span>
+                </div>
+                <span className="text-[8.5px] text-gray-400">보유 비중 반영 가중평균 월별 변동률</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 w-full">
+                {monthlyReturns.length === 0 ? (
+                  <span className="text-[10px] text-gray-400">데이터 없음</span>
+                ) : (
+                  monthlyReturns.map(item => {
+                    const isPositive = item.returnPercent >= 0;
+                    const monthColors = activeTab === 'US'
+                      ? (isPositive ? 'text-emerald-600 bg-emerald-50/40 border-emerald-100/60' : 'text-rose-600 bg-rose-50/40 border-rose-100/60')
+                      : (isPositive ? 'text-red-600 bg-red-50/40 border-red-100/60' : 'text-blue-600 bg-blue-50/40 border-blue-100/60');
+                    return (
+                      <div 
+                        key={item.month} 
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-center font-medium",
+                          monthColors
+                        )}
+                      >
+                        <span className="text-[8.5px] font-bold opacity-80 leading-none">{formatMonth(item.month)}</span>
+                        <span className="text-[9.5px] font-extrabold font-mono leading-none">
+                          {isPositive ? '+' : ''}{item.returnPercent.toFixed(1)}%
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Controls */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12 items-end">
