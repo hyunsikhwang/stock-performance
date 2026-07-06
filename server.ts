@@ -82,11 +82,63 @@ app.get('/api/targets', (req, res) => {
   }
 });
 
+app.post('/api/verify-password', (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ error: '비밀번호를 입력해주세요.' });
+  }
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
+  }
+  res.json({ success: true });
+});
+
+app.get('/api/lookup-name', async (req, res) => {
+  const { code, category } = req.query;
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: '종목 코드가 필요합니다.' });
+  }
+
+  try {
+    let resolved = code.toUpperCase().trim();
+    if (category === 'KR' || category === 'ETF') {
+      if (/^\d{6}$/.test(resolved)) {
+        try {
+          const q = await yahooFinance.quote(`${resolved}.KS`);
+          if (q) {
+            return res.json({ name: q.longName || q.shortName || q.symbol });
+          }
+        } catch {
+          try {
+            const q = await yahooFinance.quote(`${resolved}.KQ`);
+            if (q) {
+              return res.json({ name: q.longName || q.shortName || q.symbol });
+            }
+          } catch {
+            // failed
+          }
+        }
+      }
+    } else {
+      const q = await yahooFinance.quote(resolved);
+      if (q) {
+        return res.json({ name: q.longName || q.shortName || q.symbol });
+      }
+    }
+    res.status(404).json({ error: '해당 종목을 찾을 수 없습니다.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || '조회 실패' });
+  }
+});
+
 app.post('/api/targets/update', (req, res) => {
   const { password, category, content } = req.body;
   
+  if (!password) {
+    return res.status(401).json({ error: '비밀번호가 입력되지 않았습니다.' });
+  }
   if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: '비밀번호가 틀렸습니다.' });
   }
 
   try {
