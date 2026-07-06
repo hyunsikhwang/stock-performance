@@ -74,13 +74,21 @@ const renderCategoryLabelRich = (cat: string) => {
 
 // --- Components ---
 
-const Header = ({ onManageClick }: { onManageClick: () => void }) => (
+const Header = ({ onManageClick, lastUpdated }: { onManageClick: () => void, lastUpdated: Date | null }) => (
   <header className="mb-8 pb-8 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
     <div className="text-center sm:text-left">
       <h1 className="text-4xl font-bold tracking-tight text-gray-900 mb-2">Stock Performance</h1>
-      <p className="text-xs text-gray-400 font-semibold tracking-wide font-mono uppercase bg-gray-50 border border-gray-100/80 px-2.5 py-1 rounded-md inline-block">
-        Real-time stock performance metrics
-      </p>
+      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+        <p className="text-xs text-gray-400 font-semibold tracking-wide font-mono uppercase bg-gray-50 border border-gray-100/80 px-2.5 py-1 rounded-md inline-block">
+          Real-time stock performance metrics
+        </p>
+        {lastUpdated && (
+          <span className="text-[10px] text-gray-500 font-bold font-mono bg-emerald-50 text-emerald-700 border border-emerald-100/80 px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shadow-sm animate-fade-in">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            최근 업데이트: {format(lastUpdated, 'HH:mm:ss')}
+          </span>
+        )}
+      </div>
     </div>
     <button 
       onClick={onManageClick}
@@ -620,6 +628,7 @@ export default function App() {
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [hoveredStock, setHoveredStock] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'return' | 'dailyChange'>('dailyChange');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const formatPrice = (price: number, code?: string) => {
     if (activeTab === 'US') {
@@ -657,23 +666,31 @@ export default function App() {
   useEffect(() => {
     if (activeTab && categories[activeTab]) {
       fetchHistory();
+
+      // Refresh real-time stock quotes silently every 1 minute
+      const interval = setInterval(() => {
+        fetchHistory(true);
+      }, 60000);
+
+      return () => clearInterval(interval);
     }
   }, [activeTab, startDate, endDate, categories]);
 
-  const fetchHistory = async () => {
+  const fetchHistory = async (silent = false) => {
     const targets = categories[activeTab];
     if (!targets) return;
     
-    setLoading(true);
+    if (!silent) setLoading(true);
     const symbols = targets.map(t => t.code).join(',');
     try {
       const res = await fetch(`/api/history?symbols=${symbols}&start=${startDate}&end=${endDate}`);
       const data = await res.json();
       setHistory(data);
+      setLastUpdated(new Date());
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -732,11 +749,15 @@ export default function App() {
     let weightedCumulativeReturn = 0;
     
     summary.forEach(item => {
+      const isVisible = visibility[item.name] !== false;
+      if (!isVisible) return;
       const mktVal = item.currentPrice * (item.quantity || 0);
       totalMarketValue += mktVal;
     });
     
     summary.forEach(item => {
+      const isVisible = visibility[item.name] !== false;
+      if (!isVisible) return;
       const itemMktVal = item.currentPrice * (item.quantity || 0);
       const weightFraction = totalMarketValue > 0 ? (itemMktVal / totalMarketValue) : 0;
       weightedDailyReturn += weightFraction * item.dailyChangePercent;
@@ -748,7 +769,7 @@ export default function App() {
       weightedDailyReturn,
       weightedCumulativeReturn
     };
-  }, [summary]);
+  }, [summary, visibility]);
 
   const monthlyReturns = useMemo(() => {
     const monthsSet = new Set<string>();
@@ -944,7 +965,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-100">
       <div className="max-w-7xl mx-auto px-4 py-12 md:px-8">
-        <Header onManageClick={() => setIsAdminOpen(true)} />
+        <Header onManageClick={() => setIsAdminOpen(true)} lastUpdated={lastUpdated} />
 
         {/* Portfolio Overview Cards */}
         <div className="flex flex-col gap-3 mb-8 max-w-4xl">
@@ -1129,13 +1150,15 @@ export default function App() {
               const isUS = activeTab === 'US';
               const valueToShow = sortBy === 'dailyChange' ? item.dailyChangePercent : item.returnPercent;
               const perfColors = getPerformanceColors(valueToShow, isUS);
+              const dailyColors = getPerformanceColors(item.dailyChangePercent, isUS);
+              const cumColors = getPerformanceColors(item.returnPercent, isUS);
 
               return (
                 <button 
                   key={`${item.code}-${item.name}`}
                   onClick={() => toggleVisibility(item.name)}
                   className={cn(
-                    "group relative p-2 rounded-xl border transition-all duration-300 text-left overflow-hidden h-[88px] flex flex-col justify-between shadow-sm",
+                    "group relative p-2 rounded-xl border transition-all duration-300 text-left overflow-hidden h-[104px] flex flex-col justify-between shadow-sm",
                     isHidden 
                       ? "bg-gray-50 border-gray-100 opacity-40 grayscale" 
                       : `${perfColors.bg} ${perfColors.border} ${perfColors.hoverBorder} hover:shadow-md hover:scale-[1.02] active:scale-95`
@@ -1147,23 +1170,40 @@ export default function App() {
                       <h3 className="text-[10px] uppercase text-gray-500 tracking-wider font-bold truncate pr-1">{item.name}</h3>
                       {!isHidden ? <Eye className="w-2.5 h-2.5 text-gray-400 opacity-60 flex-shrink-0" /> : <EyeOff className="w-2.5 h-2.5 text-gray-400 opacity-60 flex-shrink-0" />}
                     </div>
-                    <div className="text-xs sm:text-sm font-black tracking-tight leading-none my-0.5 truncate text-gray-900">
-                      {formatPrice(item.currentPrice, item.code)}
-                    </div>
-                    <div className="flex justify-between items-center w-full gap-1">
-                      <div className={cn(
-                        "text-[10px] font-black font-mono flex items-center gap-0.5 flex-shrink-0",
-                        perfColors.text
-                      )}>
-                        <span>{valueToShow >= 0 ? '▲' : '▼'}</span>
-                        <span>{Math.abs(valueToShow).toFixed(2)}%</span>
+                    
+                    <div className="flex items-baseline justify-between w-full gap-1 my-0.5">
+                      <div className="text-xs sm:text-sm font-black tracking-tight leading-none truncate text-gray-900 font-mono">
+                        {formatPrice(item.currentPrice, item.code)}
                       </div>
-                      <div className="flex flex-col items-end gap-0.5 min-w-0 max-w-[50%]">
-                        <div className="flex items-center gap-0.5">
-                          <span className="text-[8px] font-medium text-gray-400">비중</span>
-                          <span className="text-[9.5px] font-extrabold text-gray-700 font-mono">{item.weight.toFixed(1)}%</span>
+                      {!isHidden && (
+                        <div className={cn(
+                          "text-[8px] font-extrabold px-1 py-0.5 rounded flex items-center gap-0.5 font-mono flex-shrink-0",
+                          dailyColors.text,
+                          dailyColors.bg
+                        )}>
+                          <span>{item.dailyChangePercent >= 0 ? '▲' : '▼'}</span>
+                          <span>{Math.abs(item.dailyChangePercent).toFixed(1)}%</span>
                         </div>
-                        <div className="w-12 h-1 bg-gray-200/60 rounded-full overflow-hidden relative">
+                      )}
+                    </div>
+
+                    <div className="flex justify-between items-end w-full gap-1">
+                      <div className="flex flex-col leading-none">
+                        <span className="text-[7.5px] font-bold text-gray-400 uppercase">누적 수익</span>
+                        <span className={cn(
+                          "text-[10px] font-black font-mono mt-0.5",
+                          cumColors.text
+                        )}>
+                          {item.returnPercent >= 0 ? '+' : ''}{item.returnPercent.toFixed(1)}%
+                        </span>
+                      </div>
+                      
+                      <div className="flex flex-col items-end min-w-0 max-w-[50%]">
+                        <div className="flex items-center gap-0.5 leading-none">
+                          <span className="text-[7.5px] font-bold text-gray-400 uppercase">비중</span>
+                          <span className="text-[10px] font-black text-gray-700 font-mono">{item.weight.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-10 sm:w-12 h-1 bg-gray-200/60 rounded-full overflow-hidden relative mt-1">
                           <div 
                             className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
                             style={{ 

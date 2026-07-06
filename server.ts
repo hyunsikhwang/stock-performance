@@ -159,7 +159,16 @@ app.get('/api/history', async (req, res) => {
 
   const symbolList = (symbols as string).split(',');
   const startDate = new Date(start as string || new Date().getFullYear() + '-01-01');
+  startDate.setUTCHours(0, 0, 0, 0);
+
   const endDate = new Date(end as string || new Date());
+  endDate.setUTCHours(23, 59, 59, 999);
+
+  // Determine if this is a query for a past date (within 30 hours of today is treated as current/real-time)
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+  const endMs = endDate.getTime();
+  const isPast = (todayStart - endMs) > (30 * 60 * 60 * 1000);
 
   try {
     const results: Record<string, any> = {};
@@ -213,18 +222,37 @@ app.get('/api/history', async (req, res) => {
         if (!currentBest) {
           bestQuoteMap[baseSym] = q;
         } else {
-          const currentPrice = currentBest.regularMarketPrice || currentBest.price || currentBest.regularMarketPreviousClose;
-          
           let better = false;
           if (isKrCode) {
-            // Strictly prefer ones that actually returned a price and have the right currency
-            if (q.currency === 'KRW' && currentBest.currency !== 'KRW') better = true;
-            else if (q.currency === 'KRW' && currentBest.currency === 'KRW') {
-              // If both KRW, pick the one with volume or just standard market
-              if ((q.regularMarketVolume || 0) > (currentBest.regularMarketVolume || 0)) better = true;
+            // 1. Strictly prefer KRW currency
+            if (q.currency === 'KRW' && currentBest.currency !== 'KRW') {
+              better = true;
+            } else if (q.currency === 'KRW' && currentBest.currency === 'KRW') {
+              // 2. Prefer ticker where volume is defined (active ticker) vs undefined (inactive ticker)
+              const qVolDefined = q.regularMarketVolume !== undefined && q.regularMarketVolume !== null;
+              const cbVolDefined = currentBest.regularMarketVolume !== undefined && currentBest.regularMarketVolume !== null;
+
+              if (qVolDefined && !cbVolDefined) {
+                better = true;
+              } else if (qVolDefined && cbVolDefined) {
+                // If both have volume defined, prefer the one with larger volume or standard fallback
+                if (q.regularMarketVolume > currentBest.regularMarketVolume) {
+                  better = true;
+                }
+              } else {
+                // If neither has volume defined, prefer KOSPI (.KS) as a standard fallback
+                if (q.symbol.endsWith('.KS') && !currentBest.symbol.endsWith('.KS')) {
+                  better = true;
+                }
+              }
             }
           } else {
-            if ((q.regularMarketVolume || 0) > (currentBest.regularMarketVolume || 0)) better = true;
+            // For US symbols, prefer higher volume if available
+            const qVol = q.regularMarketVolume || 0;
+            const cbVol = currentBest.regularMarketVolume || 0;
+            if (qVol > cbVol) {
+              better = true;
+            }
           }
           
           if (better) {
@@ -249,21 +277,33 @@ app.get('/api/history', async (req, res) => {
         try {
           const data = await yahooFinance.historical(querySym, { period1: startDate, period2: endDate }) as any;
           if (Array.isArray(data) && data.length > 0) {
-            const currentPrice = bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : data[data.length - 1].close;
+            let currentPrice = 0;
             let dailyChangePercent = 0;
-            if (bestQuote) {
-              if (bestQuote.regularMarketChangePercent !== undefined) {
-                dailyChangePercent = bestQuote.regularMarketChangePercent;
-              } else if (bestQuote.regularMarketPreviousClose) {
-                dailyChangePercent = ((currentPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+
+            if (isPast) {
+              currentPrice = data[data.length - 1].close;
+              if (data.length > 1) {
+                const last = data[data.length - 1].close;
+                const prev = data[data.length - 2].close;
+                if (prev > 0) {
+                  dailyChangePercent = ((last - prev) / prev) * 100;
+                }
               }
-            } else if (data.length > 1) {
-              const last = data[data.length - 1].close;
-              const prev = data[data.length - 2].close;
-              if (prev > 0) {
-                dailyChangePercent = ((last - prev) / prev) * 100;
+            } else {
+              currentPrice = bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : data[data.length - 1].close;
+              if (bestQuote && bestQuote.regularMarketChangePercent !== undefined && bestQuote.regularMarketChangePercent !== null) {
+                dailyChangePercent = bestQuote.regularMarketChangePercent;
+              } else if (bestQuote && bestQuote.regularMarketPreviousClose) {
+                dailyChangePercent = ((currentPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+              } else if (data.length > 1) {
+                const last = data[data.length - 1].close;
+                const prev = data[data.length - 2].close;
+                if (prev > 0) {
+                  dailyChangePercent = ((last - prev) / prev) * 100;
+                }
               }
             }
+
             results[origSym] = { 
               history: data, 
               price: currentPrice,
@@ -280,7 +320,7 @@ app.get('/api/history', async (req, res) => {
       // 4. Generate beautiful simulated fallback history if Yahoo has no records
       if (!success) {
         let fallbackPrice = 10000;
-        if (bestQuote) {
+        if (bestQuote && !isPast) {
           fallbackPrice = bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose || 10000;
         } else {
           const isKr = /^[0-9]/.test(origSym);
@@ -288,23 +328,37 @@ app.get('/api/history', async (req, res) => {
         }
         console.log(`Generating graceful simulated fallback history for: ${origSym} at price ${fallbackPrice}`);
         const mockHistoryData = generateMockHistory(startDate, endDate, fallbackPrice);
+        
+        let currentPrice = fallbackPrice;
         let dailyChangePercent = 0;
-        if (bestQuote) {
-          if (bestQuote.regularMarketChangePercent !== undefined) {
-            dailyChangePercent = bestQuote.regularMarketChangePercent;
-          } else if (bestQuote.regularMarketPreviousClose) {
-            dailyChangePercent = ((fallbackPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+
+        if (isPast) {
+          currentPrice = mockHistoryData[mockHistoryData.length - 1].close;
+          if (mockHistoryData.length > 1) {
+            const last = mockHistoryData[mockHistoryData.length - 1].close;
+            const prev = mockHistoryData[mockHistoryData.length - 2].close;
+            if (prev > 0) {
+              dailyChangePercent = ((last - prev) / prev) * 100;
+            }
           }
-        } else if (mockHistoryData.length > 1) {
-          const last = mockHistoryData[mockHistoryData.length - 1].close;
-          const prev = mockHistoryData[mockHistoryData.length - 2].close;
-          if (prev > 0) {
-            dailyChangePercent = ((last - prev) / prev) * 100;
+        } else {
+          currentPrice = bestQuote ? (bestQuote.regularMarketPrice || bestQuote.price || bestQuote.regularMarketPreviousClose) : fallbackPrice;
+          if (bestQuote && bestQuote.regularMarketChangePercent !== undefined && bestQuote.regularMarketChangePercent !== null) {
+            dailyChangePercent = bestQuote.regularMarketChangePercent;
+          } else if (bestQuote && bestQuote.regularMarketPreviousClose) {
+            dailyChangePercent = ((currentPrice - bestQuote.regularMarketPreviousClose) / bestQuote.regularMarketPreviousClose) * 100;
+          } else if (mockHistoryData.length > 1) {
+            const last = mockHistoryData[mockHistoryData.length - 1].close;
+            const prev = mockHistoryData[mockHistoryData.length - 2].close;
+            if (prev > 0) {
+              dailyChangePercent = ((last - prev) / prev) * 100;
+            }
           }
         }
+
         results[origSym] = {
           history: mockHistoryData,
-          price: fallbackPrice,
+          price: currentPrice,
           isSimulated: true,
           dailyChangePercent: dailyChangePercent
         };
