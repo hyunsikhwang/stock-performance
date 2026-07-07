@@ -208,6 +208,16 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
 
   const fetchCategoryData = async () => {
     try {
+      const cached = localStorage.getItem('stock_performance_targets_v2');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const catData = parsed[category] || [];
+        setItems(catData);
+        const formatted = catData.map((d: any) => `${d.code}|${d.name}|${d.quantity}`).join('\n');
+        setRawContent(formatted);
+        return;
+      }
+
       const res = await fetch('/api/targets');
       const data = await res.json();
       const catData = data[category] || [];
@@ -371,6 +381,32 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
         const errData = await res.json();
         throw new Error(errData.error || '비밀번호가 틀렸거나 저장에 실패했습니다.');
       }
+
+      // Sync and save to localStorage to persist across container rebuilds/republishes
+      const parsedItems = contentToSubmit.split('\n')
+        .filter((line: string) => line.trim() && !line.startsWith('#'))
+        .map((line: string) => {
+          const [code, name, quantityStr] = line.split('|');
+          return {
+            code: code?.trim() || '',
+            name: name?.trim() || '',
+            quantity: parseInt(quantityStr || '0', 10)
+          };
+        });
+
+      const cached = localStorage.getItem('stock_performance_targets_v2');
+      let currentCategories: Record<string, Target[]> = {};
+      if (cached) {
+        currentCategories = JSON.parse(cached);
+      } else {
+        const targetsRes = await fetch('/api/targets');
+        if (targetsRes.ok) {
+          currentCategories = await targetsRes.json();
+        }
+      }
+      currentCategories[category] = parsedItems;
+      localStorage.setItem('stock_performance_targets_v2', JSON.stringify(currentCategories));
+
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -411,7 +447,7 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
         </div>
 
         {/* Modal Body Container */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 min-h-0">
+        <div className="p-6 overflow-y-auto overflow-x-hidden space-y-6 flex-1 min-h-0">
           {!isUnlocked ? (
             <div className="py-8 px-4 flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-6">
               <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-3xl flex items-center justify-center text-gray-700 shadow-sm">
@@ -487,8 +523,8 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
               </div>
 
               {/* Mode Switcher Tabs */}
-              <div className="flex border-b border-gray-100 pb-0.5 justify-between items-end">
-                <div className="flex">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 border-b border-gray-100 pb-2 sm:pb-0.5">
+                <div className="flex flex-wrap">
                   <button
                     onClick={() => {
                       syncRawToItems();
@@ -523,7 +559,7 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
                 </div>
 
                 {!isRawMode && (
-                  <div className="relative max-w-[180px] sm:max-w-xs w-full pb-1">
+                  <div className="relative w-full sm:max-w-[180px] md:max-w-xs pb-1">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                     <input
                       type="text"
@@ -540,8 +576,8 @@ const AdminModal = ({ isOpen, onClose, categories }: { isOpen: boolean, onClose:
               {!isRawMode ? (
                 <div className="space-y-6">
                   {/* Items List Table */}
-                  <div className="border border-gray-100 rounded-2xl overflow-hidden max-h-72 overflow-y-auto shadow-sm">
-                    <table className="w-full text-sm text-left">
+                  <div className="border border-gray-100 rounded-2xl overflow-x-auto overflow-y-auto max-h-72 shadow-sm max-w-full">
+                    <table className="w-full min-w-[550px] text-sm text-left">
                       <thead className="bg-gray-50 text-xs text-gray-500 font-bold tracking-wider sticky top-0 border-b border-gray-100">
                         <tr>
                           <th className="px-4 py-3">코드 (코드/티커)</th>
@@ -879,9 +915,19 @@ export default function App() {
 
   const fetchTargets = async () => {
     try {
+      const cached = localStorage.getItem('stock_performance_targets_v2');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setCategories(parsed);
+        const firstTab = Object.keys(parsed)[0];
+        if (firstTab && !activeTab) setActiveTab(firstTab);
+        return;
+      }
+
       const res = await fetch('/api/targets');
       const data = await res.json();
       setCategories(data);
+      localStorage.setItem('stock_performance_targets_v2', JSON.stringify(data));
       const firstTab = Object.keys(data)[0];
       if (firstTab && !activeTab) setActiveTab(firstTab);
     } catch (e) {
